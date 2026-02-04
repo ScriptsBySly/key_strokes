@@ -116,7 +116,7 @@ def key_to_string(key):
         if len(key_str) == 1:
             key_str = key_str
 
-    print(f"[DEBUG] key_to_string: {key} -> {key_str}")
+    #print(f"[DEBUG] key_to_string: {key} -> {key_str}")
     return key_str
 
 
@@ -134,14 +134,14 @@ def on_press(key):
     # Modifier key pressed
     if any(mod in key_str for mod in ["CTRL", "ALT", "SHIFT"]):
         current_modifiers.add(key_str.split("_")[0])  # store just CTRL/ALT/SHIFT
-        print(f"[DEBUG] Current modifiers: {current_modifiers}")
+        #print(f"[DEBUG] Current modifiers: {current_modifiers}")
         return
 
     # Regular key pressed → combine with current modifiers
     combo_keys = list(current_modifiers) + [key_str]
     current_modifiers.clear()  # reset after combo
 
-    print(f"[DEBUG] Combo keys to display: {combo_keys}")
+    #print(f"[DEBUG] Combo keys to display: {combo_keys}")
 
     # Build keycaps for each key
     images = [build_keycap_surface(k) for k in combo_keys]
@@ -159,7 +159,7 @@ def on_release(key):
     # Remove released modifier from set
     if any(mod in key_str for mod in ["CTRL", "ALT", "SHIFT"]):
         current_modifiers.discard(key_str.split("_")[0])
-        print(f"[DEBUG] Released modifier: {key_str}, current_modifiers: {current_modifiers}")
+        #print(f"[DEBUG] Released modifier: {key_str}, current_modifiers: {current_modifiers}")
 
 
 listener = keyboard.Listener(on_press=on_press, on_release=on_release)
