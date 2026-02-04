@@ -19,17 +19,9 @@ FPS = 60
 
 FONT_SIZE = 72
 TEXT_COLOR = (0, 0, 0)
-# =========================
 
-
-# =========================
-# Stroke tracking
-# =========================
-strokes = [
-    [None, None, None],
-    [None, None, None],
-    [None, None, None]
-]
+BOTTOM_LEFT_MARGIN = 10  # space from bottom-left
+VERTICAL_SPACING = 10    # space between stacked keycaps
 # =========================
 
 
@@ -37,13 +29,11 @@ pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Key Monitor Window")
 clock = pygame.time.Clock()
-
 font = pygame.font.SysFont(None, FONT_SIZE)
 
 
 # =========================================================
-# IMAGE PROCESSING FUNCTION (NEW)
-# Builds the final image with key text overlay
+# IMAGE PROCESSING FUNCTION
 # =========================================================
 def build_keycap_surface(key_string):
     """
@@ -84,20 +74,19 @@ def build_keycap_surface(key_string):
 
     return final_surface
 
+
 # =========================================================
+# Stroke tracking (bottom-left stacking)
+# Each stroke = dict with keys: image, start_time
+# =========================================================
+strokes = []
+MAX_STROKES = 3
 
 
-current_image = None
-img_rect = None
-last_key_time = -999
-showing = False
-
-
-# =========================
+# =========================================================
 # Global keyboard listener
-# =========================
+# =========================================================
 def key_to_string(key):
-    """Convert pynput key to readable string"""
     try:
         return key.char.upper()
     except AttributeError:
@@ -105,26 +94,26 @@ def key_to_string(key):
 
 
 def on_press(key):
-    global last_key_time, showing, current_image, img_rect
-
     key_str = key_to_string(key)
 
-    # Build new image with text
-    current_image = build_keycap_surface(key_str)
+    # Build the keycap image
+    image_surf = build_keycap_surface(key_str)
 
-    img_rect = current_image.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    # Add new stroke to list
+    strokes.append({"image": image_surf, "start_time": time.time()})
 
-    last_key_time = time.time()
-    showing = True
+    # Keep max 3 active strokes
+    if len(strokes) > MAX_STROKES:
+        strokes.pop(0)  # remove oldest
 
 
 listener = keyboard.Listener(on_press=on_press)
 listener.start()
 
 
-# =========================
+# =========================================================
 # Main loop
-# =========================
+# =========================================================
 running = True
 
 while running:
@@ -134,23 +123,34 @@ while running:
 
     screen.fill(BG_COLOR)
 
-    if showing and current_image:
-        elapsed = time.time() - last_key_time
+    # Draw strokes from newest to oldest (bottom to top)
+    y_pos = HEIGHT - BOTTOM_LEFT_MARGIN
 
-        if elapsed < VISIBLE_TIME:
-            fade_start = VISIBLE_TIME - FADE_TIME
+    for stroke in reversed(strokes):  # reversed = newest last
+        elapsed = time.time() - stroke["start_time"]
+        if elapsed >= VISIBLE_TIME:
+            continue  # skip expired
 
-            if elapsed >= fade_start:
-                fade_progress = (elapsed - fade_start) / FADE_TIME
-                alpha = 255 * (1 - fade_progress)
-            else:
-                alpha = 255
-
-            temp_img = current_image.copy()
-            temp_img.set_alpha(int(max(0, min(255, alpha))))
-            screen.blit(temp_img, img_rect)
+        fade_start = VISIBLE_TIME - FADE_TIME
+        if elapsed >= fade_start:
+            fade_progress = (elapsed - fade_start) / FADE_TIME
+            alpha = 255 * (1 - fade_progress)
         else:
-            showing = False
+            alpha = 255
+
+        img = stroke["image"].copy()
+        img.set_alpha(int(max(0, min(255, alpha))))
+
+        rect = img.get_rect()
+        rect.bottomleft = (BOTTOM_LEFT_MARGIN, y_pos)
+        screen.blit(img, rect)
+
+        # Move up for the next (older) key
+        y_pos -= rect.height + VERTICAL_SPACING
+
+
+    # Remove fully expired strokes
+    strokes = [s for s in strokes if time.time() - s["start_time"] < VISIBLE_TIME]
 
     pygame.display.flip()
     clock.tick(FPS)
