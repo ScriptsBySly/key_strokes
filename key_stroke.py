@@ -31,6 +31,8 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Key Monitor Window")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, FONT_SIZE)
+# Add at the top (after strokes and combo_buffer)
+pressed_keys = set()
 
 # =========================================================
 # IMAGE PROCESSING FUNCTION
@@ -67,7 +69,6 @@ def build_keycap_surface(key_string):
 # =========================================================
 strokes = []
 combo_buffer = []
-SPECIAL_KEYS = {"CTRL", "ALT", "SHIFT"}
 
 # =========================================================
 # Modifier keys currently pressed
@@ -121,24 +122,28 @@ def key_to_string(key):
 
 
 def on_press(key):
-    global combo_buffer, strokes, current_modifiers
+    global combo_buffer, strokes, current_modifiers, pressed_keys
 
-    key_str = str(key).replace("Key.", "").upper()
-    print(f"[DEBUG] Pressed: {key_str}")
+    key_str = key_to_string(key)
+
+    # Ignore repeats if key is already pressed
+    if key_str in pressed_keys:
+        return
+    pressed_keys.add(key_str)
 
     # Modifier key pressed
-    if key_str in MODIFIER_KEYS:
+    if any(mod in key_str for mod in ["CTRL", "ALT", "SHIFT"]):
         current_modifiers.add(key_str.split("_")[0])  # store just CTRL/ALT/SHIFT
         print(f"[DEBUG] Current modifiers: {current_modifiers}")
         return
 
     # Regular key pressed → combine with current modifiers
-    combo_keys = list(current_modifiers) + [key_to_string(key)]
+    combo_keys = list(current_modifiers) + [key_str]
     current_modifiers.clear()  # reset after combo
 
     print(f"[DEBUG] Combo keys to display: {combo_keys}")
 
-    # Build keycaps for each key in the combo
+    # Build keycaps for each key
     images = [build_keycap_surface(k) for k in combo_keys]
     strokes.append({"images": images, "start_time": time.time()})
 
@@ -146,12 +151,16 @@ def on_press(key):
     if len(strokes) > MAX_STROKES:
         strokes.pop(0)
 
+
 def on_release(key):
+    key_str = key_to_string(key)
+    pressed_keys.discard(key_str)
+
     # Remove released modifier from set
-    key_str = str(key).replace("Key.", "").upper()
-    if key_str in MODIFIER_KEYS:
+    if any(mod in key_str for mod in ["CTRL", "ALT", "SHIFT"]):
         current_modifiers.discard(key_str.split("_")[0])
         print(f"[DEBUG] Released modifier: {key_str}, current_modifiers: {current_modifiers}")
+
 
 listener = keyboard.Listener(on_press=on_press, on_release=on_release)
 listener.start()
