@@ -17,11 +17,12 @@ FADE_TIME = 0.5
 
 FPS = 60
 
-FONT_SIZE = 72
+FONT_SIZE = 48  # smaller for multiple caps
 TEXT_COLOR = (0, 0, 0)
 
-BOTTOM_LEFT_MARGIN = 10  # space from bottom-left
-VERTICAL_SPACING = 10    # space between stacked keycaps
+BOTTOM_LEFT_MARGIN = 0
+VERTICAL_SPACING = 10
+HORIZONTAL_SPACING = 0
 # =========================
 
 
@@ -38,53 +39,43 @@ font = pygame.font.SysFont(None, FONT_SIZE)
 def build_keycap_surface(key_string):
     """
     Creates a scaled keycap image with centered transparent text,
-    rotated 45 degrees CCW, and translated by (5, -5).
+    rotated 40 degrees CCW, translated by (0, -30).
     Returns a pygame.Surface with alpha.
     """
-
-    # Load base image
     base = pygame.image.load(IMAGE_PATH).convert_alpha()
 
     # Scale to 1/3 window
     target_w = WIDTH // 3
     target_h = HEIGHT // 3
-
     img_w, img_h = base.get_size()
     scale = min(target_w / img_w, target_h / img_h)
-
     new_size = (int(img_w * scale), int(img_h * scale))
     base = pygame.transform.smoothscale(base, new_size)
 
     # Render text
     text_surface = font.render(key_string, True, TEXT_COLOR)
-
-    # Rotate text 45 degrees CCW
     rotated_text = pygame.transform.rotate(text_surface, 40)
-
-    # Center rotated text on the keycap
     text_rect = rotated_text.get_rect(center=(new_size[0] // 2, new_size[1] // 2))
-
-    # Apply translation offset (X=5, Y=-5)
-    text_rect.centerx += 0
     text_rect.centery += -30
 
-    # Blit rotated and translated text onto the keycap
     final_surface = base.copy()
     final_surface.blit(rotated_text, text_rect)
-
     return final_surface
 
 
 # =========================================================
 # Stroke tracking (bottom-left stacking)
-# Each stroke = dict with keys: image, start_time
+# Each stroke = dict with keys: images (list of surfaces), start_time
 # =========================================================
 strokes = []
 MAX_STROKES = 3
 
+combo_buffer = []
+SPECIAL_KEYS = {"CTRL", "ALT", "SHIFT"}
+
 
 # =========================================================
-# Global keyboard listener
+# Keyboard listener
 # =========================================================
 def key_to_string(key):
     try:
@@ -94,17 +85,32 @@ def key_to_string(key):
 
 
 def on_press(key):
+    global combo_buffer, strokes
+
     key_str = key_to_string(key)
 
-    # Build the keycap image
-    image_surf = build_keycap_surface(key_str)
+    # Detect special keys (contains CTRL/ALT/SHIFT)
+    if any(special in key_str for special in SPECIAL_KEYS):
+        if len(combo_buffer) < 2:
+            combo_buffer.append(key_str.split("_")[0])  # store "CTRL" instead of "CTRL_L"
+        return
 
-    # Add new stroke to list
-    strokes.append({"image": image_surf, "start_time": time.time()})
+    # Normal key or combo completion
+    if combo_buffer:
+        combo_keys = combo_buffer + [key_str]
+        combo_buffer = []
+    else:
+        combo_keys = [key_str]
 
-    # Keep max 3 active strokes
+    # Build one keycap per key
+    images = [build_keycap_surface(k) for k in combo_keys]
+
+    # Add as one row (stroke)
+    strokes.append({"images": images, "start_time": time.time()})
+
+    # Keep max strokes
     if len(strokes) > MAX_STROKES:
-        strokes.pop(0)  # remove oldest
+        strokes.pop(0)
 
 
 listener = keyboard.Listener(on_press=on_press)
@@ -126,10 +132,10 @@ while running:
     # Draw strokes from newest to oldest (bottom to top)
     y_pos = HEIGHT - BOTTOM_LEFT_MARGIN
 
-    for stroke in reversed(strokes):  # reversed = newest last
+    for stroke in reversed(strokes):
         elapsed = time.time() - stroke["start_time"]
         if elapsed >= VISIBLE_TIME:
-            continue  # skip expired
+            continue
 
         fade_start = VISIBLE_TIME - FADE_TIME
         if elapsed >= fade_start:
@@ -138,18 +144,21 @@ while running:
         else:
             alpha = 255
 
-        img = stroke["image"].copy()
-        img.set_alpha(int(max(0, min(255, alpha))))
+        # Draw each keycap in the row
+        x_pos = BOTTOM_LEFT_MARGIN
+        for img in stroke["images"]:
+            img_copy = img.copy()
+            img_copy.set_alpha(int(max(0, min(255, alpha))))
+            rect = img_copy.get_rect()
+            rect.bottomleft = (x_pos, y_pos)
+            screen.blit(img_copy, rect)
+            x_pos += rect.width + HORIZONTAL_SPACING
 
-        rect = img.get_rect()
-        rect.bottomleft = (BOTTOM_LEFT_MARGIN, y_pos)
-        screen.blit(img, rect)
+        # Move up for next row
+        max_height = max(img.get_height() for img in stroke["images"])
+        y_pos -= max_height + VERTICAL_SPACING
 
-        # Move up for the next (older) key
-        y_pos -= rect.height + VERTICAL_SPACING
-
-
-    # Remove fully expired strokes
+    # Remove expired strokes
     strokes = [s for s in strokes if time.time() - s["start_time"] < VISIBLE_TIME]
 
     pygame.display.flip()
