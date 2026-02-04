@@ -23,15 +23,14 @@ TEXT_COLOR = (0, 0, 0)
 BOTTOM_LEFT_MARGIN = 0
 VERTICAL_SPACING = 10
 HORIZONTAL_SPACING = 0
+MAX_STROKES = 3
 # =========================
-
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Key Monitor Window")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, FONT_SIZE)
-
 
 # =========================================================
 # IMAGE PROCESSING FUNCTION
@@ -62,60 +61,100 @@ def build_keycap_surface(key_string):
     final_surface.blit(rotated_text, text_rect)
     return final_surface
 
-
 # =========================================================
 # Stroke tracking (bottom-left stacking)
 # Each stroke = dict with keys: images (list of surfaces), start_time
 # =========================================================
 strokes = []
-MAX_STROKES = 3
-
 combo_buffer = []
 SPECIAL_KEYS = {"CTRL", "ALT", "SHIFT"}
 
+# =========================================================
+# Modifier keys currently pressed
+# =========================================================
+current_modifiers = set()
+MODIFIER_KEYS = {"CTRL_L", "CTRL_R", "SHIFT", "SHIFT_R", "ALT_L", "ALT_R"}
 
 # =========================================================
-# Keyboard listener
+# Helpers for key handling
 # =========================================================
+def fix_control_char(char):
+    """Convert control characters from CTRL+letter combos to normal letters"""
+    if char and len(char) == 1 and ord(char) <= 26:
+        return chr(ord(char) + 64)  # \x01 -> 'A', \x02 -> 'B', etc.
+    return char
+
 def key_to_string(key):
-    try:
-        return key.char.upper()
-    except AttributeError:
-        return str(key).replace("Key.", "").upper()
+    """
+    Converts a pynput key to a readable string.
+    Fixes CTRL+letter combos, KeyCode.vk integers, and numpad numbers.
+    """
+    # 1️⃣ Regular character
+    if hasattr(key, 'char') and key.char is not None:
+        key_str = fix_control_char(key.char)
+        key_str = key_str.upper()
+
+    # 2️⃣ KeyCode with vk (virtual key)
+    elif hasattr(key, 'vk') and key.vk is not None:
+        # Numpad 0-9
+        if 96 <= key.vk <= 105:
+            key_str = f"Num{key.vk - 96}"
+        # Letters A-Z
+        elif 65 <= key.vk <= 90:
+            key_str = chr(key.vk).upper()
+        else:
+            key_str = str(key.vk)
+
+    # 3️⃣ Named keys like Key.enter
+    elif hasattr(key, 'name') and key.name is not None:
+        key_str = key.name.upper()
+
+    # 4️⃣ Fallback
+    else:
+        key_str = str(key).replace("Key.", "").upper()
+        if len(key_str) == 1:
+            key_str = key_str
+
+    print(f"[DEBUG] key_to_string: {key} -> {key_str}")
+    return key_str
+
 
 
 def on_press(key):
-    global combo_buffer, strokes
+    global combo_buffer, strokes, current_modifiers
 
-    key_str = key_to_string(key)
+    key_str = str(key).replace("Key.", "").upper()
+    print(f"[DEBUG] Pressed: {key_str}")
 
-    # Detect special keys (contains CTRL/ALT/SHIFT)
-    if any(special in key_str for special in SPECIAL_KEYS):
-        if len(combo_buffer) < 2:
-            combo_buffer.append(key_str.split("_")[0])  # store "CTRL" instead of "CTRL_L"
+    # Modifier key pressed
+    if key_str in MODIFIER_KEYS:
+        current_modifiers.add(key_str.split("_")[0])  # store just CTRL/ALT/SHIFT
+        print(f"[DEBUG] Current modifiers: {current_modifiers}")
         return
 
-    # Normal key or combo completion
-    if combo_buffer:
-        combo_keys = combo_buffer + [key_str]
-        combo_buffer = []
-    else:
-        combo_keys = [key_str]
+    # Regular key pressed → combine with current modifiers
+    combo_keys = list(current_modifiers) + [key_to_string(key)]
+    current_modifiers.clear()  # reset after combo
 
-    # Build one keycap per key
+    print(f"[DEBUG] Combo keys to display: {combo_keys}")
+
+    # Build keycaps for each key in the combo
     images = [build_keycap_surface(k) for k in combo_keys]
-
-    # Add as one row (stroke)
     strokes.append({"images": images, "start_time": time.time()})
 
-    # Keep max strokes
+    # Limit max strokes
     if len(strokes) > MAX_STROKES:
         strokes.pop(0)
 
+def on_release(key):
+    # Remove released modifier from set
+    key_str = str(key).replace("Key.", "").upper()
+    if key_str in MODIFIER_KEYS:
+        current_modifiers.discard(key_str.split("_")[0])
+        print(f"[DEBUG] Released modifier: {key_str}, current_modifiers: {current_modifiers}")
 
-listener = keyboard.Listener(on_press=on_press)
+listener = keyboard.Listener(on_press=on_press, on_release=on_release)
 listener.start()
-
 
 # =========================================================
 # Main loop
@@ -163,7 +202,6 @@ while running:
 
     pygame.display.flip()
     clock.tick(FPS)
-
 
 listener.stop()
 pygame.quit()
